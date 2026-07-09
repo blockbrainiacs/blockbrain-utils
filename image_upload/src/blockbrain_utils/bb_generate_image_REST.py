@@ -436,14 +436,32 @@ def _send_and_download(session: requests.Session, cfg: BlockBrainConfig,
         return
 
     logger.info("Downloading image from: %s", image_url)
-    img_resp = session.get(image_url, stream=True)
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        logger.debug("Download attempt %d/%d …", attempt, max_retries)
+        img_resp = session.get(image_url, stream=True)
+        logger.debug("Download response: HTTP %d, content-type=%s, content-length=%s",
+                      img_resp.status_code,
+                      img_resp.headers.get("content-type", "?"),
+                      img_resp.headers.get("content-length", "?"))
+        if img_resp.status_code < 500:
+            break
+        logger.debug("Response body on %d error: %s",
+                      img_resp.status_code, img_resp.text[:500])
+        if attempt < max_retries:
+            wait = 2 ** attempt
+            logger.warning("Server error %d on download (attempt %d/%d), retrying in %ds …",
+                           img_resp.status_code, attempt, max_retries, wait)
+            time.sleep(wait)
     img_resp.raise_for_status()
 
     with open(filename, "wb") as f:
+        total_bytes = 0
         for chunk in img_resp.iter_content(chunk_size=8192):
             f.write(chunk)
+            total_bytes += len(chunk)
 
-    logger.info("Successfully saved image to %s", filename)
+    logger.info("Successfully saved image to %s (%d bytes)", filename, total_bytes)
 
 
 # ── Main flow ───────────────────────────────────────────────────────────────
